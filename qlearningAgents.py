@@ -3,8 +3,9 @@
 # Licensing Information:  You are free to use or extend these projects for
 # educational purposes provided that (1) you do not distribute or publish
 # solutions, (2) you retain this notice, and (3) you provide clear
-# attribution to UC Berkeley, including a link to http://ai.berkeley.edu.
-# 
+# attribution to UC Berkeley, including a link to
+# http://inst.eecs.berkeley.edu/~cs188/pacman/pacman.html
+#
 # Attribution Information: The Pacman AI projects were developed at UC Berkeley.
 # The core projects and autograders were primarily created by John DeNero
 # (denero@cs.berkeley.edu) and Dan Klein (klein@cs.berkeley.edu).
@@ -42,7 +43,7 @@ class QLearningAgent(ReinforcementAgent):
         ReinforcementAgent.__init__(self, **args)
 
         "*** YOUR CODE HERE ***"
-        self.QValues = util.Counter()
+        self.qvalue = util.Counter()
 
     def getQValue(self, state, action):
         """
@@ -51,9 +52,8 @@ class QLearningAgent(ReinforcementAgent):
           or the Q node value otherwise
         """
         "*** YOUR CODE HERE ***"
-        return self.QValues[(state, action)]
-
-        util.raiseNotDefined()
+        return self.qvalue[state, action]
+        # util.raiseNotDefined()
 
     def computeValueFromQValues(self, state):
         """
@@ -63,9 +63,14 @@ class QLearningAgent(ReinforcementAgent):
           terminal state, you should return a value of 0.0.
         """
         "*** YOUR CODE HERE ***"
-        qvalues = [self.getQValue(state, action) for action in self.getLegalActions(state)]
-        if not len(qvalues): return 0.0
-        return max(qvalues)
+        legalActions = self.getLegalActions(state)
+        if len(legalActions) == 0:
+            return 0.0
+        maxqvalue = -999999
+        for action in legalActions:
+            if self.getQValue(state, action) > maxqvalue:
+                maxqvalue = self.getQValue(state, action)
+        return maxqvalue
         # util.raiseNotDefined()
 
     def computeActionFromQValues(self, state):
@@ -74,18 +79,18 @@ class QLearningAgent(ReinforcementAgent):
           are no legal actions, which is the case at the terminal state,
           you should return None.
         """
-
         "*** YOUR CODE HERE ***"
+        bestAction = [None]
         legalActions = self.getLegalActions(state)
-        if not len(legalActions):
-            return None
-        QValue = -1e10
-        for legalAction in legalActions:
-            QValueTemp = self.getQValue(state, legalAction)
-            if QValueTemp > QValue:
-                action = legalAction
-                QValue = QValueTemp
-        return action
+        maxqvalue = -999999
+        for action in legalActions:
+            if self.getQValue(state, action) > maxqvalue:
+                maxqvalue = self.getQValue(state, action)
+                bestAction = [action]
+            elif self.getQValue(state, action) == maxqvalue:
+                bestAction.append(action)
+
+        return random.choice(bestAction)
         # util.raiseNotDefined()
 
     def getAction(self, state):
@@ -102,16 +107,15 @@ class QLearningAgent(ReinforcementAgent):
         legalActions = self.getLegalActions(state)
         action = None
         "*** YOUR CODE HERE ***"
-        if not len(legalActions):
-            return action
-        randomAction = util.flipCoin(self.epsilon)
-        if randomAction:
-            action = random.choice(legalActions)
-        else:
-            action = self.getPolicy(state)
-        return action
 
-        util.raiseNotDefined()
+        if util.flipCoin(self.epsilon):
+            return random.choice(legalActions)
+        else:
+            return self.computeActionFromQValues(state)
+
+        # util.raiseNotDefined()
+
+        # return action
 
     def update(self, state, action, nextState, reward):
         """
@@ -122,14 +126,10 @@ class QLearningAgent(ReinforcementAgent):
           it will be called on your behalf
         """
         "*** YOUR CODE HERE ***"
-        # legalActions = self.getLegalActions(state)
-        curQValue = self.getQValue(state, action)
-        # if not legalActions:
-        #  self.QValues[(state, action)] = (1-self.alpha) * curQValue + self.alpha * reward
-        # else:
-        self.QValues[(state, action)] = (1 - self.alpha) * curQValue + self.alpha * (reward \
-                                                                                     + self.discount * self.getValue(
-                    nextState))
+
+        sample = reward + self.discount * self.computeValueFromQValues(nextState)
+        key = state, action
+        self.qvalue[key] = (1.0 - self.alpha) * self.getQValue(state, action) + self.alpha * sample
         # util.raiseNotDefined()
 
     def getPolicy(self, state):
@@ -192,26 +192,31 @@ class ApproximateQAgent(PacmanQAgent):
           where * is the dotProduct operator
         """
         "*** YOUR CODE HERE ***"
-        QValue = 0.0
-        features = self.featExtractor.getFeatures(state, action)
-        # print 'features', features
-        for feature in features:
-            # print feature
-            QValue += features[feature] * self.weights[feature]
-        return QValue
-
-        util.raiseNotDefined()
+        f = self.featExtractor
+        features = f.getFeatures(state, action)
+        qvalue = 0
+        for feature in features.keys():
+            qvalue += self.weights[feature] * features[feature]
+        return qvalue
+        # util.raiseNotDefined()
 
     def update(self, state, action, nextState, reward):
         """
            Should update your weights based on transition
         """
         "*** YOUR CODE HERE ***"
+        actionsFromNextState = self.getLegalActions(nextState)
+        maxqnext = -999999
+        for act in actionsFromNextState:
+            if self.getQValue(nextState, act) > maxqnext:
+                maxqnext = self.getQValue(nextState, act)
+        if maxqnext == -999999:
+            maxqnext = 0
+        diff = (reward + (self.discount * maxqnext)) - self.getQValue(state, action)
         features = self.featExtractor.getFeatures(state, action)
-        difference = reward + self.discount * self.getValue(nextState) - self.getQValue(state, action)
-        for feature in features:
-            self.weights[feature] += self.alpha * difference * features[feature]
-
+        self.qvalue[(state, action)] += self.alpha * diff
+        for feature in features.keys():
+            self.weights[feature] += self.alpha * diff * features[feature]
         # util.raiseNotDefined()
 
     def final(self, state):
@@ -223,5 +228,4 @@ class ApproximateQAgent(PacmanQAgent):
         if self.episodesSoFar == self.numTraining:
             # you might want to print your weights here for debugging
             "*** YOUR CODE HERE ***"
-            # print 'self.weights',self.weights
             pass
